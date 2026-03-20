@@ -1,4 +1,4 @@
-# StageWard — Costume Inventory Platform
+# Backstage Manager — Costume Inventory Platform
 
 Multi-tier costume, props & equipment inventory system for theatres and schools.  
 Built with **Next.js 15 · Supabase · Tailwind CSS · TypeScript**.

@@ -1,0 +1,142 @@
+'use client'
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase-client'
+
+export default function LoansPage() {
+  const [loans, setLoans]     = useState<any[]>([])
+  const [facilities, setFacilities] = useState<Record<string,string>>({})
+  const [items, setItems]     = useState<Record<string,any>>({})
+  const [loading, setLoading] = useState(true)
+  const [tab, setTab]         = useState<'all'|'pending'|'active'|'returned'>('all')
+  const supabase = createClient()
+
+  useEffect(() => {
+    async function load() {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const { data: prof } = await supabase.from('user_profiles').select('district_id,facility_id,role').eq('id', session.user.id).single()
+      if (!prof) return
+
+      // Get all loans for the district
+      let query = supabase.from('loan_requests').select('*').order('request_date', { ascending: false })
+
+      if (prof.role === 'facility_manager' && prof.facility_id) {
+        query = query.or(`from_facility_id.eq.${prof.facility_id},to_facility_id.eq.${prof.facility_id}`)
+      }
+
+      const { data: loanData } = await query
+      setLoans(loanData || [])
+
+      // Get facilities for names
+      const { data: facData } = await supabase.from('facilities').select('id,name')
+      const fm: Record<string,string> = {}
+      ;(facData || []).forEach((f: any) => { fm[f.id] = f.name })
+      setFacilities(fm)
+
+      // Get items for names
+      const itemIds = [...new Set((loanData || []).map((l: any) => l.item_id))]
+      if (itemIds.length > 0) {
+        const { data: itemData } = await supabase.from('inventory_items').select('id,tag_id,name,item_type').in('id', itemIds)
+        const im: Record<string,any> = {}
+        ;(itemData || []).forEach((i: any) => { im[i.id] = i })
+        setItems(im)
+      }
+      setLoading(false)
+    }
+    load()
+  }, [])
+
+  const statusColor: Record<string,string> = {
+    Pending:     '#e8943a',
+    Approved:    '#2d8fa5',
+    'Checked-Out': '#8a5cbf',
+    Returned:    '#6aaa5a',
+    Declined:    '#c4344e',
+  }
+
+  const filtered = tab === 'all' ? loans
+    : tab === 'pending'  ? loans.filter(l => l.status === 'Pending')
+    : tab === 'active'   ? loans.filter(l => ['Approved','Checked-Out'].includes(l.status))
+    : loans.filter(l => ['Returned','Declined'].includes(l.status))
+
+  const icon: Record<string,string> = { Costume:'👗', Prop:'🎭', Wig:'💈', Jewelry:'💍', Equipment:'💡' }
+
+  return (
+    <div>
+      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:'1.2rem',paddingBottom:'.9rem',borderBottom:'1px solid rgba(201,168,76,.12)'}}>
+        <div>
+          <div style={{fontFamily:"'DM Mono',monospace",fontSize:'.56rem',letterSpacing:'.16em',color:'#5a5038',textTransform:'uppercase',marginBottom:'.18rem'}}>Loan Management</div>
+          <h1 style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:'1.5rem',fontWeight:700,color:'#c9a84c',margin:0}}>📦 Loan Activity</h1>
+        </div>
+        <div style={{display:'flex',gap:'.4rem'}}>
+          <a href="/dashboard/loans/incoming" style={{fontFamily:"'DM Mono',monospace",fontSize:'.62rem',letterSpacing:'.1em',textTransform:'uppercase',padding:'.42rem .85rem',background:'transparent',color:'#9a8e72',border:'1px solid rgba(201,168,76,.28)',borderRadius:2,textDecoration:'none'}}>📥 Incoming</a>
+          <a href="/dashboard/loans/outgoing" style={{fontFamily:"'DM Mono',monospace",fontSize:'.62rem',letterSpacing:'.1em',textTransform:'uppercase',padding:'.42rem .85rem',background:'#c9a84c',color:'#231e14',fontWeight:500,borderRadius:2,textDecoration:'none'}}>📤 Outgoing</a>
+        </div>
+      </div>
+
+      {/* Stats row */}
+      {!loading && (
+        <div style={{display:'flex',gap:'.6rem',marginBottom:'1rem',flexWrap:'wrap'}}>
+          {[
+            { label:'Total',      value: loans.length,                                           color:'#c9a84c' },
+            { label:'Pending',    value: loans.filter(l=>l.status==='Pending').length,            color:'#e8943a' },
+            { label:'Active',     value: loans.filter(l=>['Approved','Checked-Out'].includes(l.status)).length, color:'#8a5cbf' },
+            { label:'Returned',   value: loans.filter(l=>l.status==='Returned').length,           color:'#6aaa5a' },
+          ].map(s => (
+            <div key={s.label} style={{background:'linear-gradient(135deg,#252018,#201c14)',border:'1px solid rgba(201,168,76,.12)',borderRadius:3,padding:'.5rem .8rem',minWidth:80,position:'relative',overflow:'hidden'}}>
+              <div style={{position:'absolute',top:0,left:0,right:0,height:2,background:s.color,opacity:.5}}/>
+              <div style={{fontFamily:"'Playfair Display',Georgia,serif",fontSize:'1.3rem',fontWeight:900,color:s.color,lineHeight:1}}>{s.value}</div>
+              <div style={{fontFamily:"'DM Mono',monospace",fontSize:'.52rem',color:'#5a5038',textTransform:'uppercase',letterSpacing:'.08em',marginTop:'.1rem'}}>{s.label}</div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tab filter */}
+      <div style={{display:'flex',gap:0,marginBottom:'1rem',background:'#1a1610',borderRadius:2,border:'1px solid rgba(201,168,76,.2)',overflow:'hidden',width:'fit-content'}}>
+        {(['all','pending','active','returned'] as const).map(t => (
+          <button key={t} onClick={()=>setTab(t)} style={{padding:'.4rem .9rem',background:tab===t?'rgba(201,168,76,.15)':'transparent',border:'none',color:tab===t?'#c9a84c':'#5a5038',cursor:'pointer',fontFamily:"'DM Mono',monospace",fontSize:'.58rem',letterSpacing:'.1em',textTransform:'uppercase'}}>
+            {t}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div style={{padding:'2rem',textAlign:'center',fontFamily:"'DM Mono',monospace",fontSize:'.65rem',color:'#5a5038'}}>Loading…</div>
+      ) : (
+        <div style={{display:'grid',gap:'.5rem'}}>
+          {filtered.map(loan => {
+            const item = items[loan.item_id]
+            const fromFac = facilities[loan.from_facility_id] || 'Unknown'
+            const toFac   = facilities[loan.to_facility_id]   || 'Unknown'
+            const sc = statusColor[loan.status] || '#9a8e72'
+            return (
+              <div key={loan.id} style={{background:'#231e14',border:`1px solid ${sc}30`,borderLeft:`3px solid ${sc}`,borderRadius:2,padding:'.75rem 1rem',display:'flex',alignItems:'center',gap:'.8rem'}}>
+                <span style={{fontSize:'1.2rem'}}>{icon[item?.item_type]||'📦'}</span>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:'.92rem',color:'#e6dfc8',marginBottom:'.2rem'}}>{item?.name||'Unknown Item'} <span style={{fontFamily:"'DM Mono',monospace",fontSize:'.58rem',color:'#5a5038'}}>{item?.tag_id}</span></div>
+                  <div style={{fontFamily:"'DM Mono',monospace",fontSize:'.58rem',color:'#5a5038'}}>
+                    {fromFac} → {toFac} &nbsp;·&nbsp; {loan.production||'—'} &nbsp;·&nbsp; Requested by {loan.requested_by}
+                  </div>
+                </div>
+                <div style={{fontFamily:"'DM Mono',monospace",fontSize:'.58rem',color:'#5a5038',textAlign:'right',flexShrink:0}}>
+                  <div>Need: {loan.need_date||'—'}</div>
+                  <div>Return: {loan.return_date||'—'}</div>
+                </div>
+                <span style={{fontFamily:"'DM Mono',monospace",fontSize:'.56rem',padding:'3px 9px',borderRadius:7,color:sc,background:`${sc}18`,border:`1px solid ${sc}44`,flexShrink:0}}>
+                  {loan.status}
+                </span>
+              </div>
+            )
+          })}
+          {filtered.length === 0 && (
+            <div style={{textAlign:'center',padding:'3rem 1rem',color:'#5a5038'}}>
+              <div style={{fontSize:'3rem',opacity:.25,marginBottom:'.8rem'}}>📦</div>
+              <p style={{fontFamily:"'DM Mono',monospace",fontSize:'.7rem',margin:0}}>No {tab === 'all' ? '' : tab} loans found.</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
